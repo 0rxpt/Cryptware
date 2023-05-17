@@ -1,5 +1,4 @@
 <!DOCTYPE html>
-
 <html>
     <head>
         <title>Cryptware - Login</title>
@@ -7,10 +6,10 @@
 
     <body>
         <label for="input_username">Username:</label>
-        <input type="text" id="input_username" name="input_username">
+        <input type="text" id="input_username" name="input_username" required>
         <div></div>
         <label for="input_password">Password:</label>
-        <input type="password" id="input_password" name="input_password">
+        <input type="password" id="input_password" name="input_password" required>
         <div></div>
         <button id="login">Log In</button>
         <button id="gotosignup">Go to Signup</button>
@@ -28,7 +27,7 @@
                 if (!loggingIn) {
                     loggingIn = true
 
-                    fetch('/login', {
+                    fetch('/auth/login', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -39,10 +38,13 @@
                         })
                     })
                     .then(response => {
+                        console.log(response)
                         if (!response.ok) {
                             setTimeout(() => {
                                 loggingIn = false
                             }, 3000)
+                        } else {
+                            window.location.href = '/home'
                         }
                     })
                     .catch(error => {
@@ -55,7 +57,9 @@
             }
             
             password.addEventListener('keyup', (event) => {
-                if (event.keyCode === 13) login();
+                if (event.keyCode === 13) {
+                    login();
+                }
             });
 
             btn_login.addEventListener('click', () => {
@@ -63,7 +67,7 @@
             })
 
             btn_gotosignup.addEventListener('click', () => {
-                window.location.href = '/signup'
+                window.location.href = '/auth/signup'
             })
         </script>
     </body>

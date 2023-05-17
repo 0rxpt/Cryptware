@@ -2,50 +2,95 @@ const { QuickDB } = require('quick.db');
 const utils = require('./utilities')
 
 class Accounts {
-    constructor() {
-        this._database = new QuickDB();
-        this._sessions = new QuickDB();
+    constructor(store) {
         this._utils = utils
 
-        this.getUser = {
-            fromUsername: async (username) => {
-                return await this._database.get(username)
+        this.databases = {
+            main: new QuickDB(),
+            session: store
+        }
+
+        this.users = {
+            create: async (username, password) => {
+                const passwordSalt = utils.generateId(16)
+                const hashedPassword = await utils.hashPassword(password, passwordSalt)
+
+                const newData = {
+                    username: username,
+                    password: hashedPassword.toString('hex'),
+                    passwordSalt: passwordSalt,
+                    displayname: "",
+                    userid: utils.generateId()
+                }
+
+                await this.databases.main.set(username, newData)
+                return newData
             },
 
-            fromId: async (userid) => {
-                const usersData = await this._database.all()
-                const foundUser = utils.filter(usersData, user => user.userid == userid, true)
+            authenticate: async (username, password) => {
+                const user = await this.users.getUserFromUsername(username)
+                if (!user) return "Invalid user."
+
+                const hashedPasswordBuffer = user.password;
+                let derivedKeyBuffer = await utils.scryptAsync(password, Buffer.from(user.passwordSalt), 64);
+                derivedKeyBuffer = derivedKeyBuffer.toString('hex');
+
+                if (derivedKeyBuffer == hashedPasswordBuffer) {
+                    return user;
+                }
+
+                return "Invalid Password"
+            },
+
+            getUserFromUsername: async (username) => {
+                return await this.databases.main.get(username)
+            },
+
+            getUserFromId: async (userid) => {
+                const usersData = await this.databases.main.all()
+                const foundUser = usersData.find(user => user.userid === userid);
                 return foundUser
+            }
+        }
+
+        this.sessions = {
+            options: {
+                sessionExpiration: 3600000
             },
-        };
+
+            get: async (sessionId) => {
+                const sessionData = await this.databases.session.get(sessionId)
+
+                if (!sessionData)
+                    return
+
+                if (sessionData.sessionExpiration && sessionData.sessionExpiration < Date.now()) {
+                    console.log("This session has expired; deleting.")
+                    await this.sessions.delete(sessionId);
+                    return;
+                }
+
+                return sessionData;
+            },
+
+            create: async (user, sessionId, useData) => {
+                const expires = Date.now() + this.sessions.options.sessionExpiration;
+                const sessionData = { expires, user: user, userId: user.userid, sid: sessionId }
+
+                await this.databases.session.set(sessionId, useData || sessionData);
+                return sessionData
+            },
+
+            delete: async (sessionId) => {
+                await this.databases.session.destroy(sessionId)
+            }
+        }
     }
 
-    async authenticate(username, password) {
-        const user = this.getUser.fromUsername(username)
-
-        if (user && user.password === password) {
-            const sessionId = utils.generateId(32)
-            this._sessions.set(sessionId, user)
-            return sessionId
-        }
-
-        return null
-    }
-
-    async create(username, password) {
-        const newData = {
-            username: username,
-            password: password,
-            displayname: "",
-            userid: utils.generateId()
-        }
-
-        await this._database.set(username, newData)
-        return newData
+    async reset() {
+        await this.databases.main.deleteAll();
+        await this.databases.session.sync({ force: true })
     }
 }
 
-module.exports = function () {
-    if (!process.env.ACCOUNTS_MODULE) process.env.ACCOUNTS_MODULE = new Accounts()
-    return process.env.ACCOUNTS_MODULE
-}
+module.exports = Accounts

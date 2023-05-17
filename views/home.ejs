@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Cryptware - Home</title>
+    </head>
+
+    <body>
+        <% if (username) { %>
+            <p>Logged in as: <%= username %></p>
+        <% } %>
+        <div></div>
+        <button id="logout">Log Out</button>
+        <script>
+            const btn_logout = document.querySelector("#logout")
+    
+            btn_logout.addEventListener('click', () => {
+                window.location.href = '/auth/logout'
+            })
+        </script>
+    </body>
+</html>

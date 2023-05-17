@@ -1,4 +1,6 @@
-class Utilities {
+const crypto = require('crypto')
+
+const Utilities = {
     filter(obj, predicate, useOne) {
         const result = {};
 
@@ -10,7 +12,7 @@ class Utilities {
         }
 
         return result;
-    }
+    },
 
     shuffleString(str) {
         let arr = str.split('')
@@ -23,7 +25,7 @@ class Utilities {
         }
 
         return arr.join('')
-    }
+    },
 
     generateId(length) {
         length = length || 12
@@ -48,6 +50,30 @@ class Utilities {
         }
 
         return id
+    },
+
+    hashPassword(password, salt) {
+        return new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, 64, (err, derivedKey) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(derivedKey.toString('hex'));
+                }
+            });
+        });
+    },
+
+    scryptAsync(password, salt, keylen, options) {
+        return new Promise((resolve, reject) => {
+            crypto.scrypt(password, salt, keylen, options, (err, derivedKey) => {
+                if (err) {
+                    reject(err);
+                } else {
+                    resolve(derivedKey);
+                }
+            });
+        });
     }
 }
 
