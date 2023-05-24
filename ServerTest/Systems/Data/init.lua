@@ -8,11 +8,11 @@ local Data = Crypt.Register({ Name = "Data" }).Expose({
 })
 
 function Data:GetProfile(player)
-	return self.Profiles[player]
+	return self:decyclic(self.Profiles[player], {self.Profiles[player]})
 end
 
 function Data:GetProfiles()
-	return self.Profiles
+	return self:decyclic(self.Profiles, {self.Profiles})
 end
 
 function Data:Init()
