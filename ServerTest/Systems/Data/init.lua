@@ -3,7 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Crypt = require(ReplicatedStorage.Cryptware.Crypt)
 
 local Data = Crypt.Register({ Name = "Data" }).Expose({
-	RF = {},
+	RF = { "GetProfiles" },
 	RE = {}
 })
 
