@@ -1,5 +1,6 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Crypt = require(ReplicatedStorage.Cryptware.Crypt)
 
-Crypt.RegisterPath(script.Parent.Systems)
+Crypt.Include(script.Parent.Systems)
+Crypt.Utils(script.Parent.Utils)
 Crypt.Start()
