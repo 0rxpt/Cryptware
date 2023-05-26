@@ -62,6 +62,7 @@ local function createSystemFolder(systemName)
 end
 
 local function createSignal(clientSystem, commName, instanceType)
+	print(clientSystem.Name)
 	local signal = Instance.new(instanceType)
 	signal.Name = commName
 	signal.Parent = createSystemFolder(clientSystem.Name)
@@ -149,12 +150,11 @@ function CryptServer.Utils(path: Folder)
 end
 
 function CryptServer.Register(systemDef: SystemDef): System
-	createSystemsFolder()
-
 	local system = systemDef
 
 	function system.Expose(exposeDef: ExposeDef)
 		assert(not clientSystems[system.Name], "Cannot expose the system more than once")
+		createSystemsFolder()
 
 		local clientSystem = {
 			Name = system.Name,
@@ -170,10 +170,7 @@ function CryptServer.Register(systemDef: SystemDef): System
 					clientSystem._Comm.RE = clientSystem._Comm.RE or {}
 					clientSystem[exposeName] = {}
 
-					local re = clientSystem._Comm.RE
-					re[exposeName] = initSignal(clientSystem, exposeName, "RemoteEvent")
-
-					local signal: RemoteEvent = re[exposeName]
+					local signal: RemoteEvent = initSignal(clientSystem, exposeName, "RemoteEvent")
 					system[exposeName] = {}
 
 					system[exposeName].Connect = function(_, callback)
@@ -190,10 +187,7 @@ function CryptServer.Register(systemDef: SystemDef): System
 					clientSystem._Comm.RF = clientSystem._Comm.RF or {}
 					clientSystem[exposeName] = {}
 
-					local rf = clientSystem._Comm.RF
-					rf[exposeName] = initSignal(clientSystem, exposeName, "RemoteFunction")
-
-					local signal: RemoteFunction = rf[exposeName]
+					local signal: RemoteFunction = initSignal(clientSystem, exposeName, "RemoteFunction")
 
 					signal.OnServerInvoke = function(...)
 						return system[exposeName](system, ...)
@@ -221,7 +215,7 @@ function CryptServer.Start()
 
 	createMiddleware()
 	initSignals()
-
+	
 	local ds = initData()
 
 	for _, system in systems do
