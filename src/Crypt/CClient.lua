@@ -63,15 +63,6 @@ function CryptClient.Utils(path: Folder)
 	for _, module in path:GetChildren() do
 		utils[module.Name] = require(module)
 	end
-	for _, system in systems do
-		if not system.Util then
-			system.Util = utils
-		else
-			for utilName, util in utils do
-				system.Util[utilName] = util
-			end
-		end
-	end
 	for _, handler in handlers do
 		if not handler.Util then
 			handler.Util = utils
