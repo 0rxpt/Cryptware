@@ -3,34 +3,45 @@ local CryptServer = {}
 local systems = {}
 local clientSystems = {}
 
-type SystemDef = {
+export type SystemDef = {
 	Name: string,
 	[any]: any
 }
 
-type ExposeDef = {
+export type ExposeDef = {
 	RE: { [any]: string } | any,
 	RF: { [any]: string } | any,
 }
 
-type System = {
+export type System = {
 	Name: string,
+	Util: { [any]: any },
 	[any]: any
 }
 
-type InvokeType = "Import" | "Systems"
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
 local InvalidExposeName = { "_Comm", "Name" }
+local Util = {}
 
-local function validateExposeName(exposeName)
-	if exposeName[InvalidExposeName] then
-		return false
-	end
-	return true
-end
-
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local initialized = false
+local created = false
 local started = false
 local ready = false
+local start
+
+local function initUtil()
+	for _, module in script.Parent.Parent:GetChildren() do
+		if module:IsA("ModuleScript") and module.Name ~= "Crypt" then
+			Util[module.Name] = require(module)
+		end
+	end
+end
+
+local function validateExposeName(exposeName)
+	return not table.find(InvalidExposeName, exposeName) and true or false
+end
 
 local function createMiddleware()
 	local mdw = Instance.new("RemoteFunction")
@@ -57,20 +68,22 @@ local function createSystemFolder(systemName)
 		local systemFolder = Instance.new("Folder")
 		systemFolder.Name = systemName
 		systemFolder.Parent = systemsFolder
+		
 		return systemFolder
 	end
 end
 
 local function createSignal(clientSystem, commName, instanceType)
-	print(clientSystem.Name)
 	local signal = Instance.new(instanceType)
 	signal.Name = commName
 	signal.Parent = createSystemFolder(clientSystem.Name)
+	
 	if instanceType == "RemoteEvent" then
 		clientSystem._Comm.RE[commName] = signal
 	elseif instanceType == "RemoteFunction" then
 		clientSystem._Comm.RF[commName] = signal
 	end
+	
 	return signal
 end
 
@@ -85,7 +98,7 @@ local function initSignals()
 			repeat task.wait()
 			until ready
 		end
-
+		
 		return clientSystems
 	end
 end
@@ -96,10 +109,23 @@ local function findData()
 			return system
 		end
 	end
+	return nil
 end
 
 local function initData()
 	local ds = findData()
+	local runMode = if RunService:IsStudio() and RunService:IsRunMode() and #Players:GetPlayers() == 0 then true else false
+	
+	if runMode then
+		for i = 1, 100 do
+			if #Players:GetPlayers() > 0 then
+				runMode = false
+				break
+			end
+			
+			task.wait()
+		end
+	end
 
 	if not ds then
 		return
@@ -108,16 +134,36 @@ local function initData()
 	if ds.Init then
 		ds:Init()
 	end
-
+	
+	local tempReady = false
+	
 	if ds.PlayerAdded then
-		game:GetService("Players").PlayerAdded:Connect(function(player)
+		for _, plr in Players:GetPlayers() do
+			task.spawn(function()
+				ds:PlayerAdded(plr)
+				tempReady = true
+			end)
+		end
+		
+		Players.PlayerAdded:Connect(function(player)
 			ds:PlayerAdded(player)
-			ds.Ready = if not ds.Ready then true else nil
+			repeat task.wait() until not player or ds.Profiles[player.UserId]
+
+			if player then
+				tempReady = true
+			end
+		end)
+	end
+	
+	if ds.PlayerRemoving then
+		Players.PlayerRemoving:Connect(function(player)
+			ds:PlayerRemoving(player)
 		end)
 	end
 
-	if not ds.Ready then
-		repeat task.wait() until ds.Ready
+	if not ds.Ready and not runMode then
+		repeat task.wait() until tempReady
+		tempReady = nil
 	end
 
 	if ds.Start then
@@ -128,8 +174,11 @@ local function initData()
 end
 
 function CryptServer.Include(path: Folder)
+	start = os.clock()
+	
 	for _, module in path:GetChildren() do
-		require(module)
+		local s, e =  pcall(require, module)
+		if not s then warn(e) end
 	end
 end
 
@@ -139,23 +188,21 @@ function CryptServer.Utils(path: Folder)
 		utils[module.Name] = require(module)
 	end
 	for _, system in systems do
-		if not system.Util then
-			system.Util = utils
-		else
-			for utilName, util in utils do
-				system.Util[utilName] = util
-			end
+		for utilName, util in utils do
+			system.Util[utilName] = util
 		end
 	end
 end
 
 function CryptServer.Register(systemDef: SystemDef): System
 	local system = systemDef
+	system.Util = Util
+	
+	assert(not systems[system.Name], "Cannot register system \"" .. system.Name .. "\" more than once")
 
 	function system.Expose(exposeDef: ExposeDef)
 		assert(not clientSystems[system.Name], "Cannot expose the system more than once")
-		createSystemsFolder()
-
+		
 		local clientSystem = {
 			Name = system.Name,
 			_Comm = {}
@@ -212,27 +259,61 @@ end
 function CryptServer.Start()
 	assert(not started, "Cannot start Crypt: Already started!")
 	started = true
-
+	
 	createMiddleware()
 	initSignals()
 	
 	local ds = initData()
 
 	for _, system in systems do
-		if ds and system.Name == ds.Name then continue end
+		if ds and system.Name == ds.Name then
+			continue
+		end
+		
 		if system.Init then
-			system:Init()
+			local s, e = pcall(system.Init, system)
+			if not s then warn(e) end
 		end
-	end
-
-	for _, system in systems do
-		if ds and system.Name == ds.Name then continue end
+		
 		if system.Start then
-			task.spawn(system.Start, system)
+			local s, e = pcall(function()
+				task.spawn(system.Start, system)
+			end)
+			if not s then warn(e) end
 		end
+		
+		task.spawn(function()
+			if system.PlayerAdded then
+				for _, plr in Players:GetPlayers() do
+					task.spawn(function()
+						system:PlayerAdded(plr)
+					end)
+				end
+				Players.PlayerAdded:Connect(function(player)
+					system:PlayerAdded(player)
+				end)
+			end
+			
+			if system.PlayerRemoving then
+				Players.PlayerRemoving:Connect(function(player)
+					system:PlayerRemoving(player)
+				end)
+			end
+		end)
 	end
 
 	ready = true
+	print("Server initialized. Elasped time:", string.format("%.2f", os.clock() - start) .. "s")
+end
+
+if not initialized then
+	initialized = true
+	initUtil()
+end
+
+if not created then
+	created = true
+	createSystemsFolder()
 end
 
 return CryptServer
