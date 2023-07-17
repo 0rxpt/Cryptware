@@ -3,32 +3,34 @@ local CryptClient = {}
 local handlers = {}
 local systems = {}
 
-type HandlerDef = {
+export type HandlerDef = {
 	Name: string,
 	[any]: any
 }
 
-type Handler = {
+export type Handler = {
 	Name: string,
 	[any]: any
 }
 
-type System = {
+export type System = {
 	Name: string,
 	[any]: any
 }
 
-type Comm = {
+export type Comm = {
 	[any]: any
 }
 
 local started = false
 local gotSystems = false
+local start
 
 local function getSystems()
-	local _systems = script.Parent.CMiddleware:InvokeServer("Systems")
+	local _systems = script.Parent.CMiddleware:InvokeServer()
 	script.Parent.CMiddleware:Destroy()
-	if _systems and not gotSystems then
+	
+	if _systems then
 		systems = _systems
 		gotSystems = true
 	end
@@ -75,13 +77,20 @@ end
 
 function CryptClient.Register(handlerDef: HandlerDef): Handler
 	local handler = handlerDef
+	
+	assert(not handlers[handler.Name], "Cannot register handler \"" .. handler.Name .. "\" more than once")
+	assert(not systems[handler.Name], "Cannot register handler \"" .. handler.Name .. "\": A registered system already has this name.")
+	
 	handlers[handler.Name] = handler
 	return handler
 end
 
 function CryptClient.Include(path: Folder)
+	start = os.clock()
+	
 	for _, module in path:GetChildren() do
-		require(module)
+		local s, e =  pcall(require, module)
+		if not s then warn(e) end
 	end
 end
 
@@ -94,25 +103,56 @@ function CryptClient.Import(importDef: string)
 end
 
 function CryptClient.Start()
-	if started then return end
+	assert(not started, "Cannot start Crypt: Already started!")
 	started = true
-
+	
 	initSignals()
-
+	
+	local loading = handlers.Loading or handlers.LoadingHandler
+	local music = handlers.Music or handlers.MusicHandler
+	
+	if loading and loading.Init then
+		task.spawn(loading.Init, loading)
+	end
+	
 	for _, handler in handlers do
-		if handler.Init then
-			handler:Init()
+		if handler.Init and ((loading and handler.Name ~= loading.Name) or (not loading)) then
+			local s, e = pcall(handler.Init, handler)
+			if not s then warn(e) end
 		end
 	end
-
+	
 	for _, handler in handlers do
-		if handler.Start then
-			task.spawn(handler.Start, handler)
+		if handler.Start and ((loading and handler.Name ~= loading.Name) or (not loading))
+			and ((music and handler.Name ~= music.Name) or (not music))
+		then
+			local s, e = pcall(function()
+				task.spawn(handler.Start, handler)
+			end)
+			if not s then warn(e) end
 		end
 	end
+	
+	if not loading then
+		if music then
+			task.spawn(music.Start, music)
+		end
+		
+		print("Client initialized. Elasped time:", string.format("%.2f", os.clock() - start) .. "s")
+		return
+	end
+	
+	repeat task.wait() until loading.Loaded
+	
+	if music then
+		task.spawn(music.Start, music)
+	end
+	
+	print("Client initialized. Elasped time:", string.format("%.2f", os.clock() - start) .. "s")
 end
 
 if not gotSystems then
+	gotSystems = true
 	getSystems()
 end
 
