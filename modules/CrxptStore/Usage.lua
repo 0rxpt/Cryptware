@@ -14,7 +14,7 @@ local function getAccount(player)
 end
 
 local function playerAdded(player)
-	local account = AccountStore:Load("Player_" .. player.UserId)
+	local account = AccountStore:LoadAccount("Player_" .. player.UserId)
 
 	if not account then
 		player:Kick()
