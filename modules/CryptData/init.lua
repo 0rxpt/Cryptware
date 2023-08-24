@@ -173,6 +173,7 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 					loadedData = latestData
 				end
 				
+				latestData.AccountStore = nil
 				return latestData
 			end)
 		end)
