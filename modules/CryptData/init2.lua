@@ -5,18 +5,13 @@ local RunService = game:GetService("RunService")
 export type _cryptDataStore = {
 	GlobalDataStore: any,
 	StoreKey: string,
-	StoreLookup: string,
 	DefaultData: {},
 	LoadedAccounts: {},
-	LoadJobs: {},
-	TempLoadJobs: {},
-	IsPending: boolean
 }
 
 -- Class Definitions
-local CryptStore = {
+local CryptData = {
 	StoreLocked = false,
-	AutoSaveList = {},
 	TempDataStore = {},
 	UserTempDataStore = {}
 }
@@ -94,7 +89,7 @@ end
 
 local function saveAccount(account, freeFromSession, isOverwriting)
 	if type(account.Data) ~= "table" then
-		error("[CryptStore]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
+		error("[CryptData]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
 	end
 	
 	activeSaveJobs += 1
@@ -104,8 +99,8 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 	activeSaveJobs -= 1
 end
 
--- Class: CryptStore
-function CryptStore.GetStore(storeKey, defaultData): _cryptDataStore
+-- Class: CryptData
+function CryptData.GetStore(storeKey, defaultData): _cryptDataStore
 	local self = setmetatable({}, CryptDataStore)
 
 	self.StoreKey = storeKey
@@ -125,20 +120,20 @@ function CryptDataStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 	loadMethod = loadMethod or "Force"
 	
 	if self.DefaultData == nil then
-		error("[CryptStore]: Default data not set - CryptDataStore:LoadAccount() locked for this CryptDataStore")
+		error("[CryptData]: Default data not set - CryptDataStore:LoadAccount() locked for this CryptDataStore")
 	end
 	
 	if type(accountKey) ~= "string" then
-		error("[CryptStore]: accountKey must be a string")
+		error("[CryptData]: accountKey must be a string")
 	elseif #accountKey == 0 then
-		error("[CryptStore]: Invalid accountKey")
+		error("[CryptData]: Invalid accountKey")
 	end
 	
 	if loadMethod ~= "Force" and loadMethod ~= "Steal" then
-		error("[CryptStore]: Invalid loadMethod")
+		error("[CryptData]: Invalid loadMethod")
 	end
 
-	if CryptStore.StoreLocked then
+	if CryptData.StoreLocked then
 		return nil
 	end
 	
@@ -147,7 +142,7 @@ function CryptDataStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 			local loadedAccounts = cryptDataStore.LoadedAccounts
 			
 			if loadedAccounts[accountKey] then
-				error("[CryptStore]: Account " .. identifyAccount(self.StoreKey, accountKey) .. " is already loaded in this session")
+				error("[CryptData]: Account " .. identifyAccount(self.StoreKey, accountKey) .. " is already loaded in this session")
 			end
 		end
 	end
@@ -184,7 +179,7 @@ end
 
 function Account:Save()
 	if not self:IsActive() then
-		warn("[CryptStore]: Attempted saving an inactive account "
+		warn("[CryptData]: Attempted saving an inactive account "
 			.. self:Identify() .. "; Traceback:\n" .. debug.traceback())
 		
 		return
@@ -205,7 +200,7 @@ end
 
 function Account:OnFree(callback)
 	if type(callback) ~= "function" then
-		error("[CryptStore]: Only a function can be set as listener in Account:OnRelease()")
+		error("[CryptData]: Only a function can be set as listener in Account:OnRelease()")
 	end
 	
 	if not self:IsActive() then
@@ -223,7 +218,7 @@ end
 
 -- Runtime
 RunService.Heartbeat:Connect(function()
-	local saveLength = #CryptStore.AutoSaveList
+	local saveLength = #CryptData.AutoSaveList
 
 	if saveLength < 1 then
 		return
@@ -235,7 +230,7 @@ RunService.Heartbeat:Connect(function()
 	while lastClock - lastSave > saveSpeed do
 		lastSave += saveSpeed
 
-		local account = CryptStore.AutoSaveList[saveIndex]
+		local account = CryptData.AutoSaveList[saveIndex]
 
 		if lastClock - account.LoadTimestamp < Configuration.AutoSaveDuration then
 			account = nil
@@ -247,7 +242,7 @@ RunService.Heartbeat:Connect(function()
 					saveIndex = 1
 				end
 
-				account = CryptStore.AutoSaveList[saveIndex]
+				account = CryptData.AutoSaveList[saveIndex]
 
 				if lastClock - account.LoadTimestamp < Configuration.AutoSaveDuration then
 					account = nil
@@ -284,7 +279,7 @@ if isStudio then
 		local noInternetAccess = not status and message:find("ConnectFail", 1, true) ~= nil
 
 		if noInternetAccess then
-			warn("[CryptStore]: No internet access - check your network connection")
+			warn("[CryptData]: No internet access - check your network connection")
 		end
 
 		local condition =
@@ -295,9 +290,9 @@ if isStudio then
 		if not status and condition then
 			shouldntSave = true
 			
-			print("[CryptStore]: Roblox API services unavailable - data will not be saved")
+			print("[CryptData]: Roblox API services unavailable - data will not be saved")
 		else
-			print("[CryptStore]: Roblox API services available - data will be saved")
+			print("[CryptData]: Roblox API services available - data will be saved")
 		end
 
 		isLiveCheckActive = false
@@ -307,12 +302,12 @@ end
 if not isStudio or shouldntSave then
 	game:BindToClose(function()
 		--delayLiveAccess()
-		CryptStore.StoreLocked = true
+		CryptData.StoreLocked = true
 
 		local activeAccounts = {}
 		local jobCount = 0
 
-		for key, account in CryptStore.AutoSaveList do
+		for key, account in CryptData.AutoSaveList do
 			activeAccounts[key] = account
 		end
 
@@ -335,4 +330,4 @@ if not isStudio or shouldntSave then
 	end)
 end
 
-return CryptStore
+return CryptData

@@ -156,7 +156,7 @@ RunService.Heartbeat:Connect(function()
     local saveSpeed = Configuration.AutoSaveDuration / saveLength
     local lastClock = os.clock()
 
-    while lastClock - lastSave > saveSpeed then
+    while lastClock - lastSave > saveSpeed do
         lastSave += saveSpeed
 
         local account = CryptStore.AutoSaveList[saveIndex]
