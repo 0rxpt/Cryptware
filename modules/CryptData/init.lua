@@ -143,7 +143,7 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 		local succ, err = pcall(function()
 			account.AccountStore.GlobalDataStore:UpdateAsync(account.AccountKey, function(latestData)
 				local sessionOwnsAccount = false
-				latestData = latestData or account
+				latestData = latestData or deepCopy(account)
 				
 				if not isOverwriting and latestData and latestData.MetaData then
 					local activeSession = latestData.MetaData.ActiveSession
