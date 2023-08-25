@@ -7,6 +7,7 @@ export type _cryptStore = {
 	DefaultData: {},
 	GlobalDataStore: any,
 	LoadedAccounts: {},
+	MockLoadedAccounts: {},
 }
 
 -- Class Definitions
@@ -160,6 +161,8 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 	if shouldNotSave then
 		return
 	end
+	
+	print("S")
 
 	if type(account.Data) ~= "table" then
 		error("[CryptData]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
@@ -266,7 +269,14 @@ function CryptData.GetStore(storeKey, defaultData): _cryptStore
 	self.StoreKey = storeKey
 	self.DefaultData = defaultData
 	self.LoadedAccounts = {}
+	self.MockLoadedAccounts = {}
 	self.Pending = false
+	
+	self.Mock = {
+		LoadAccount = function(_, accountKey, loadMethod)
+			return self:LoadAccount(accountKey, loadMethod, true)
+		end,
+	}
 	
 	if isLiveCheckActive then
 		self.Pending = true
@@ -314,7 +324,7 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 			continue
 		end
 
-		local loadedAccounts = cryptStore.LoadedAccounts
+		local loadedAccounts = doesNotSave and cryptStore.MockLoadedAccounts or cryptStore.LoadedAccounts
 
 		if loadedAccounts[accountKey] then
 			error(
@@ -332,6 +342,23 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 	
 	local loadedData
 	local succ, err = pcall(function()
+		if doesNotSave then
+			loadedData = {
+				AccountKey = accountKey,
+				Data = deepCopy(self.DefaultData),
+				MetaData = {
+					AccountCreateTime = os.time(),
+					ActiveSession = {
+						PlaceId = placeId,
+						JobId = session
+					},
+				},
+				Version = 0
+			}
+			
+			return
+		end
+		
 		self.GlobalDataStore:UpdateAsync(accountKey, function(latestData)
 			if latestData == nil then
 				latestData = {
@@ -420,13 +447,15 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 			}
 			
 			setmetatable(account, Account)
-			self.LoadedAccounts[accountKey] = account
 			
-			addToAutoSave(account)
-			
-			if CryptData.Locked then
-				saveAccount(account, true)
-				nullifyAccount = true
+			if not doesNotSave then
+				self.LoadedAccounts[accountKey] = account
+				addToAutoSave(account)
+				
+				if CryptData.Locked then
+					saveAccount(account, true)
+					nullifyAccount = true
+				end
 			end
 			
 			activeLoadJobs -= 1
