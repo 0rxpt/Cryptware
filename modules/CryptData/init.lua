@@ -14,7 +14,7 @@ local CryptData = {
 	Locked = false,
 
 	TempDataStore = {},
-	UserTempDataStore = {}
+	UserTempDataStore = {},
 }
 
 local CryptStore = {}
@@ -44,14 +44,13 @@ local lastAutoSave
 local Configuration = {
 	AutoSaveDuration = 30,
 	AssumeDeadSessionLock = 60 * 30,
-	RobloxWriteCooldown = 7,
 }
 
 local MetaTags = {
 	AccountCreateTime = true,
 	ActiveSession = true,
 	ForceLoadSession = true,
-	LastUpdate = true
+	LastUpdate = true,
 }
 
 -- Private Functions
@@ -77,16 +76,12 @@ local function reconcile(tbl, tbl2)
 end
 
 local function identifyAccount(storeKey, accountKey)
-	return string.format(
-		"[Store:\"%s\";Key:\"%s\"]",
-		storeKey,
-		accountKey
-	)
+	return string.format('[Store:"%s";Key:"%s"]', storeKey, accountKey)
 end
 
 local function addToAutoSave(account)
 	table.insert(autoSaveList, autoSaveIndex, account)
-	
+
 	if #autoSaveList > 1 then
 		autoSaveIndex += 1
 	elseif #autoSaveList == 1 then
@@ -96,14 +91,14 @@ end
 
 local function removeFromAutoSave(account)
 	local _autoSaveIndex = table.find(autoSaveList, account)
-	
+
 	if _autoSaveIndex then
 		table.remove(autoSaveList, _autoSaveIndex)
-		
+
 		if _autoSaveIndex < autoSaveIndex then
 			autoSaveIndex -= 1
 		end
-		
+
 		if not autoSaveList[autoSaveIndex] then
 			autoSaveIndex = 1
 		end
@@ -117,109 +112,101 @@ local function freeAccount(account)
 	account.AccountStore.LoadedAccounts[account.AccountKey] = nil
 end
 
+local function isActiveSession(activeSession)
+	return activeSession.JobId == jobId and activeSession.PlaceId == placeId
+end
+
 local function saveAccount(account, freeFromSession, isOverwriting)
 	if shouldntSave then
 		return
 	end
-	
+
 	if type(account.Data) ~= "table" then
 		error("[CryptData]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
 	end
-	
+
 	if freeFromSession and isOverwriting then
 		freeAccount(account)
 	end
-	
+
 	activeSaveJobs += 1
-	
-	local repeatSaveFlag = true
-	
-	while repeatSaveFlag do
-		if not freeFromSession then
-			repeatSaveFlag = false
-		end
-		
-		local loadedData
-		local succ, err = pcall(function()
-			account.AccountStore.GlobalDataStore:UpdateAsync(account.AccountKey, function(latestData)
-				local sessionOwnsAccount = false
-				
-				latestData = latestData or {
+
+	local loadedData
+	local succ, err = pcall(function()
+		account.AccountStore.GlobalDataStore:UpdateAsync(account.AccountKey, function(latestData)
+			local sessionOwnsAccount = false
+
+			latestData = latestData
+				or {
 					AccountKey = account.AccountKey,
 					Data = account.Data,
-					MetaData = account.MetaData
+					MetaData = account.MetaData,
 				}
-				
-				if not isOverwriting and latestData and latestData.MetaData then
-					local activeSession = latestData.MetaData.ActiveSession
-					
-					if type(activeSession) == "table" then
-						sessionOwnsAccount = activeSession.JobId == jobId and activeSession.PlaceId == placeId
-					end
-				else
-					sessionOwnsAccount = true
+
+			if not isOverwriting and latestData and latestData.MetaData then
+				local activeSession = latestData.MetaData.ActiveSession
+
+				if type(activeSession) == "table" then
+					sessionOwnsAccount = isActiveSession(activeSession)
 				end
-				
-				if sessionOwnsAccount then
-					latestData.Data = account.Data
-					latestData.IsOverwriting = true
-					
-					if not isOverwriting then
-						latestData.MetaData.LastUpdate = os.time()
-						
-						if freeFromSession then
-							latestData.MetaData.ActiveSession = nil
-						end
-					else
-						latestData.MetaData = account.MetaData
+			else
+				sessionOwnsAccount = true
+			end
+
+			if sessionOwnsAccount then
+				latestData.Data = account.Data
+
+				if not isOverwriting then
+					latestData.MetaData.LastUpdate = os.time()
+
+					if freeFromSession then
 						latestData.MetaData.ActiveSession = nil
 					end
-					
-					loadedData = latestData
+				else
+					latestData.MetaData = account.MetaData
+					latestData.MetaData.ActiveSession = nil
 				end
-				
-				latestData.AccountStore = nil
-				return latestData
-			end)
-		end)
 
-		if not succ	then
-			warn("[CryptData]: DataStore API error " .. identifyAccount(account.AccountStore.StoreKey, account.AccountKey) .. " - \"" .. tostring(err) .. "\"")
+				loadedData = latestData
+			end
+
+			latestData.AccountStore = nil
+			return latestData
+		end)
+	end)
+
+	if not succ then
+		warn(
+			"[CryptData]: DataStore API error "
+				.. identifyAccount(account.AccountStore.StoreKey, account.AccountKey)
+				.. ' - "'
+				.. tostring(err)
+				.. '"'
+		)
+	end
+
+	if loadedData then
+		local sessionMetaData = account.MetaData
+		local latestMetaData = loadedData.MetaData
+
+		for key in MetaTags do
+			sessionMetaData[key] = latestMetaData[key]
 		end
-		
-		if loadedData then
-			if isOverwriting then
-				break
-			end
-			
-			repeatSaveFlag = false
-			
-			local sessionMetaData = account.MetaData
-			local latestMetaData = loadedData.MetaData
-			
-			for key in MetaTags do
-				sessionMetaData[key] = latestMetaData[key]
-			end
-			
-			local activeSession = loadedData.MetaData.ActiveSession
-			local sessionOwnsAccount = false
-			
-			if type(activeSession) == "table" then
-				sessionOwnsAccount = activeSession.JobId == jobId and activeSession.PlaceId == placeId
-			end
-			
-			local isActive = account:IsActive()
-			
-			if not sessionOwnsAccount then
-				if isActive then
-					freeAccount(account)
-				end
-			end
-		elseif repeatSaveFlag then
-			task.wait()
+
+		local activeSession = loadedData.MetaData.ActiveSession
+		local sessionOwnsAccount = false
+
+		if type(activeSession) == "table" then
+			sessionOwnsAccount = isActiveSession(activeSession)
+		end
+
+		local isActive = account:IsActive()
+
+		if not sessionOwnsAccount and isActive then
+			freeAccount(account)
 		end
 	end
-	
+
 	activeSaveJobs -= 1
 end
 
@@ -231,7 +218,7 @@ function CryptData.GetStore(storeKey, defaultData): _cryptStore
 	self.DefaultData = defaultData
 	self.GlobalDataStore = DataStoreService:GetDataStore(storeKey)
 	self.LoadedAccounts = {}
-	
+
 	activeCryptStores[storeKey] = self
 	return self
 end
@@ -262,65 +249,71 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 		if cryptStore.StoreKey ~= self.StoreKey then
 			continue
 		end
-		
+
 		local loadedAccounts = cryptStore.LoadedAccounts
 
 		if loadedAccounts[accountKey] then
-			error("[CryptData]: Account " .. identifyAccount(self.StoreKey, accountKey) .. " is already loaded in this session")
+			error(
+				"[CryptData]: Account "
+					.. identifyAccount(self.StoreKey, accountKey)
+					.. " is already loaded in this session"
+			)
 		end
 	end
-	
+
 	activeLoadJobs += 1
 
 	local forceLoad = loadMethod == "Force"
 	local aggressiveSteal = loadMethod == "Steal"
-	
+
 	local account
 	local success, err = pcall(function()
 		account = self.GlobalDataStore:GetAsync(accountKey)
 	end)
 
+	if not success then
+		warn('[CryptData]: DataStore API error - "' .. tostring(err) .. '"')
+		return
+	end
+
 	if account == nil then
 		account = {
 			AccountKey = accountKey,
-			
+
 			Data = deepCopy(self.DefaultData),
 			MetaData = deepCopy(MetaTags),
 		}
-		
+
 		account.MetaData.AccountCreateTime = os.time()
 		account.MetaData.LastUpdate = os.time()
 	end
-	
+
 	if type(account.MetaData.ActiveSession) == "table" then
 		return
 	end
-	
+
 	account.LoadTimestamp = os.clock()
 	account.AccountStore = self
 	account.MetaData.ActiveSession = { placeId, jobId }
 
 	self.LoadedAccounts[accountKey] = account
 	activeLoadJobs -= 1
-	
+
 	setmetatable(account, Account)
 	addToAutoSave(account)
-	
+
 	return account
 end
 
 -- Class: Account
 function Account:IsActive()
-	local loadedAccounts = self.AccountStore.LoadedAccounts -- self._isTemp and 
+	local loadedAccounts = self.AccountStore.LoadedAccounts
 
 	return loadedAccounts[self.AccountKey] == self
 end
 
 function Account:Identify()
-	return identifyAccount(
-		self.AccountStore.StoreKey,
-		self.AccountKey
-	)
+	return identifyAccount(self.AccountStore.StoreKey, self.AccountKey)
 end
 
 function Account:Reconcile()
@@ -329,8 +322,12 @@ end
 
 function Account:Save()
 	if not self:IsActive() then
-		warn("[CryptData]: Attempted saving an inactive account "
-			.. self:Identify() .. "; Traceback:\n" .. debug.traceback())
+		warn(
+			"[CryptData]: Attempted saving an inactive account "
+				.. self:Identify()
+				.. "; Traceback:\n"
+				.. debug.traceback()
+		)
 
 		return
 	end
@@ -353,7 +350,11 @@ function Account:OnFree(callback)
 		error("[CryptData]: Only a function can be set as listener in Account:OnRelease()")
 	end
 
-	if not self:IsActive() then
+	task.spawn(function()
+		while self:IsActive() do
+			task.wait()
+		end
+
 		local _placeId, _jobId
 		local activeSession = self.MetaData.ActiveSession
 
@@ -363,7 +364,7 @@ function Account:OnFree(callback)
 		end
 
 		callback(_placeId, _jobId)
-	end
+	end)
 end
 
 -- Initialization
@@ -383,7 +384,7 @@ if isStudio then
 		end
 
 		local condition
-		
+
 		if message then
 			condition = string.find(message, "403", 1, true) ~= nil -- Cannot write to DataStore from studio if API access is not enabled
 				or string.find(message, "must publish", 1, true) ~= nil -- Game must be published to access live keys
@@ -407,12 +408,12 @@ if not isStudio or shouldntSave then
 		while isLiveCheckActive do
 			task.wait()
 		end
-		
+
 		CryptData.Locked = true
 
 		local activeAccounts = {}
 		local jobCount = 0
-		
+
 		for key, account in autoSaveList do
 			activeAccounts[key] = account
 		end
@@ -438,28 +439,28 @@ end
 
 RunService.Heartbeat:Connect(function()
 	local autoSaveListLength = #autoSaveList
-	
+
 	if autoSaveListLength > 0 then
 		local autoSaveIndexSpeed = Configuration.AutoSaveDuration / autoSaveListLength
 		local osClock = os.clock()
-		
+
 		while osClock - lastAutoSave > autoSaveIndexSpeed do
 			lastAutoSave += autoSaveIndexSpeed
-			
+
 			local account = autoSaveList[autoSaveIndex]
-			
+
 			if osClock - account.LoadTimestamp < Configuration.AutoSaveDuration then
 				account = nil
-				
+
 				for _ = 1, autoSaveListLength do
 					autoSaveIndex += 1
-					
+
 					if autoSaveIndex > autoSaveListLength then
 						autoSaveIndex = 1
 					end
-					
+
 					account = autoSaveList[autoSaveIndex]
-					
+
 					if osClock - account.LoadTimestamp >= Configuration.AutoSaveDuration then
 						break
 					else
@@ -467,13 +468,13 @@ RunService.Heartbeat:Connect(function()
 					end
 				end
 			end
-			
+
 			autoSaveIndex += 1
-			
+
 			if autoSaveIndex > autoSaveListLength then
 				autoSaveIndex = 1
 			end
-			
+
 			if account then
 				task.spawn(saveAccount, account)
 			end
