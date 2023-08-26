@@ -5,7 +5,7 @@ local Serializers = {
 	Vector3 = function(vector3: Vector3)
 		return {
 			"Vector3",
-			
+
 			{
 				vector3.X,
 				vector3.Y,
@@ -13,11 +13,11 @@ local Serializers = {
 			}
 		}
 	end,
-	
+
 	CFrame = function(cFrame: CFrame)
 		return {
 			"CFrame",
-			
+
 			{ cFrame:GetComponents() }
 		}
 	end,
@@ -27,18 +27,10 @@ local Deserializers = {
 	Vector3 = function(serialized)
 		return Vector3.new(table.unpack(serialized))
 	end,
-	
+
 	CFrame = function(serialized)
 		return CFrame.new(table.unpack(serialized))
 	end,
-}
-
-type _cryptStore = {
-	StoreKey: string,
-	DefaultData: {},
-	GlobalDataStore: any,
-	LoadedAccounts: {},
-	MockLoadedAccounts: {},
 }
 
 -- Class Definitions
@@ -55,12 +47,21 @@ local Account = {}
 CryptStore.__index = CryptStore
 Account.__index = Account
 
+-- Type Definitions
+type _cryptStore = {
+	StoreKey: string,
+	DefaultData: {},
+	GlobalDataStore: any,
+	LoadedAccounts: {},
+	MockLoadedAccounts: {},
+}
+
 -- Private Variables
 local shouldNotSave = false
 
 local logLevel1 = false
-local logLevel2 = true
-local logLevel3 = true
+local logLevel2 = false
+local logLevel3 = false
 local logDebugging = false
 
 local session
