@@ -1,5 +1,4 @@
 local DataStoreService = game:GetService("DataStoreService")
-local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 export type _cryptStore = {
@@ -25,7 +24,7 @@ CryptStore.__index = CryptStore
 Account.__index = Account
 
 -- Private Variables
-local shouldLog = false
+local shouldLog = true
 local session
 local placeId = game.PlaceId
 
@@ -33,8 +32,6 @@ local activeCryptStores = {}
 local autoSaveList = {}
 
 local isStudio = RunService:IsStudio()
-
-local shouldNotSave = false
 local isLiveCheckActive = false
 
 local activeLoadJobs = 0
@@ -56,8 +53,17 @@ local MetaTags = {
 
 -- Private Functions
 local function log(...)
+	local args = {...}
+	local callback = args[#args]
+	
+	args[#args] = nil
+	
 	if shouldLog then
-		print(...)
+		if type(callback) == "function" then
+			callback(table.unpack(args))
+		else
+			print(table.unpack(args))
+		end
 	end
 end
 
@@ -147,10 +153,17 @@ local function removeFromAutoSave(account)
 end
 
 local function freeAccount(account)
-	removeFromAutoSave(account)
+	log("Freeing...")
+	
+	if account.AccountStore.UseMock then
+		account.MetaData.ActiveSession = nil
+		account.AccountStore.MockLoadedAccounts[account.AccountKey] = nil
+	else
+		removeFromAutoSave(account)
 
-	account.MetaData.ActiveSession = nil
-	account.AccountStore.LoadedAccounts[account.AccountKey] = nil
+		account.MetaData.ActiveSession = nil
+		account.AccountStore.LoadedAccounts[account.AccountKey] = nil
+	end
 end
 
 local function isThisSession(activeSession)
@@ -158,108 +171,110 @@ local function isThisSession(activeSession)
 end
 
 local function saveAccount(account, freeFromSession, isOverwriting)
-	if shouldNotSave then
-		return
-	end
-	
-	print("S")
-
-	if type(account.Data) ~= "table" then
-		error("[CryptData]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
-	end
-
-	if freeFromSession and isOverwriting then
-		freeAccount(account)
-	end
-
-	activeSaveJobs += 1
-	log("Attempting to save data:", account)
-
-	local loadedData
-	local succ, err = pcall(function()
-		account.AccountStore.GlobalDataStore:UpdateAsync(account.AccountKey, function(latestData)
-			local sessionOwnsAccount = false
-
-			latestData = latestData or {
-				AccountKey = account.AccountKey,
-				Data = account.Data,
-				MetaData = account.MetaData,
-				LoadTimestamp = account.LoadTimestamp,
-				Version = 0
-			}
-
-			if not isOverwriting then
-				local activeSession = latestData.MetaData.ActiveSession
-
-				if type(activeSession) == "table" then
-					sessionOwnsAccount = isThisSession(activeSession)
-				end
-			else
-				sessionOwnsAccount = true
-			end
-			
-			log(sessionOwnsAccount and "Session owns account." or "Session does not own account.")
-
-			if sessionOwnsAccount then
-				latestData.Data = account.Data
-				latestData.Version += 1
-				
-				log(isOverwriting and "Overwriting." or "Will not overwrite.")
-				
-				if not isOverwriting then
-					latestData.MetaData.LastUpdate = os.time()
-					
-					log(freeFromSession and "Will free from session." or "Will not free from session.")
-					
-					if freeFromSession then
-						latestData.MetaData.ActiveSession = nil
-					end
-				else
-					latestData.MetaData = account.MetaData
-					latestData.MetaData.ActiveSession = nil
-				end
-			end
-			
-			loadedData = latestData
-			latestData.AccountStore = nil
-			
-			return latestData
-		end)
-	end)
-
-	if not succ then
-		warn(
-			"[CryptData]: DataStore API error "
-				.. identifyAccount(account.AccountStore.StoreKey, account.AccountKey)
-				.. ' - "'
-				.. tostring(err)
-				.. '"'
-		)
-	end
-
-	if loadedData then
-		local sessionMetaData = account.MetaData
-		local latestMetaData = loadedData.MetaData
-
-		for key in MetaTags do
-			sessionMetaData[key] = latestMetaData[key]
-		end
-
-		local activeSession = loadedData.MetaData.ActiveSession
-		local sessionOwnsAccount = false
-
-		if type(activeSession) == "table" then
-			sessionOwnsAccount = isThisSession(activeSession)
-		end
-
-		local isActive = account:IsActive()
-
-		if not sessionOwnsAccount and isActive then
+	if account.AccountStore.UseMock then
+		if freeFromSession then
 			freeAccount(account)
 		end
-	end
+	else
+		print("Saving...")
 
-	activeSaveJobs -= 1
+		if type(account.Data) ~= "table" then
+			error("[CryptData]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
+		end
+
+		if freeFromSession and isOverwriting then
+			freeAccount(account)
+		end
+
+		activeSaveJobs += 1
+		--log("Attempting to save data:", account)
+
+		local loadedData
+		local succ, err = pcall(function()
+			account.AccountStore.GlobalDataStore:UpdateAsync(account.AccountKey, function(latestData)
+				local sessionOwnsAccount = false
+
+				latestData = latestData or {
+					AccountKey = account.AccountKey,
+					Data = account.Data,
+					MetaData = account.MetaData,
+					LoadTimestamp = account.LoadTimestamp,
+					Version = 0
+				}
+
+				if not isOverwriting then
+					local activeSession = latestData.MetaData.ActiveSession
+
+					if type(activeSession) == "table" then
+						sessionOwnsAccount = isThisSession(activeSession)
+					end
+				else
+					sessionOwnsAccount = true
+				end
+
+				log(sessionOwnsAccount and "Session owns account." or "Session does not own account.")
+
+				if sessionOwnsAccount then
+					latestData.Data = account.Data
+					latestData.Version += 1
+
+					log(isOverwriting and "Overwriting." or "Will not overwrite.")
+
+					if not isOverwriting then
+						latestData.MetaData.LastUpdate = os.time()
+
+						log(freeFromSession and "Will free from session." or "Will not free from session.")
+
+						if freeFromSession then
+							latestData.MetaData.ActiveSession = nil
+						end
+					else
+						latestData.MetaData = account.MetaData
+						latestData.MetaData.ActiveSession = nil
+					end
+				end
+
+				loadedData = latestData
+				latestData.AccountStore = nil
+
+				return latestData
+			end)
+		end)
+
+		if not succ then
+			warn(
+				"[CryptData]: DataStore API error "
+					.. identifyAccount(account.AccountStore.StoreKey, account.AccountKey)
+					.. ' - "'
+					.. tostring(err)
+					.. '"'
+			)
+		end
+
+		if loadedData then
+			local sessionMetaData = account.MetaData
+			local latestMetaData = loadedData.MetaData
+
+			for key in MetaTags do
+				sessionMetaData[key] = latestMetaData[key]
+			end
+
+			local activeSession = loadedData.MetaData.ActiveSession
+			local sessionOwnsAccount = false
+
+			if type(activeSession) == "table" then
+				sessionOwnsAccount = isThisSession(activeSession)
+			end
+
+			local isActive = account:IsActive()
+
+			if not sessionOwnsAccount and isActive then
+				freeAccount(account)
+			end
+		end
+
+		activeSaveJobs -= 1
+	end
 end
 
 -- Class: CryptData
@@ -274,6 +289,8 @@ function CryptData.GetStore(storeKey, defaultData): _cryptStore
 	
 	self.Mock = {
 		LoadAccount = function(_, accountKey, loadMethod)
+			self.UseMock = true
+			
 			return self:LoadAccount(accountKey, loadMethod, true)
 		end,
 	}
@@ -382,6 +399,7 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 							PlaceId = placeId,
 							JobId = session
 						}
+						
 						self.LoadedAccounts[accountKey] = latestData
 					elseif type(activeSession) == "table" and isThisSession(activeSession) then
 						local lastUpdate = latestData.MetaData.LastUpdate
@@ -423,7 +441,7 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 		return
 	end
 	
-	log("Attempting to load data:", loadedData)
+	--log("Attempting to load data:", loadedData)
 	
 	local activeSession = loadedData.MetaData.ActiveSession
 	
@@ -456,6 +474,8 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 					saveAccount(account, true)
 					nullifyAccount = true
 				end
+			else
+				self.MockLoadedAccounts[accountKey] = account
 			end
 			
 			activeLoadJobs -= 1
@@ -467,7 +487,7 @@ end
 
 -- Class: Account
 function Account:IsActive()
-	local loadedAccounts = self.AccountStore.LoadedAccounts
+	local loadedAccounts = self.AccountStore.UseMock and self.AccountStore.MockLoadedAccounts or self.AccountStore.LoadedAccounts
 
 	return loadedAccounts[self.AccountKey] == self
 end
@@ -500,12 +520,10 @@ function Account:OverwriteAsync()
 end
 
 function Account:Free()
-	log("Freeing...")
-	
 	if self:IsActive() then
 		task.spawn(saveAccount, self, true)
 	else
-		log("Not active.")
+		log("Cannot free: not active.")
 	end
 end
 
@@ -539,22 +557,21 @@ if isStudio then
 
 	task.spawn(function()
 		local status, message = pcall(function()
-			-- This will error if current instance has no Studio API access:
 			DataStoreService:GetDataStore("____CS"):SetAsync("____CS", os.time())
 		end)
 
 		local noInternetAccess = not status and string.find(message, "ConnectFail", 1, true) ~= nil
 
 		if noInternetAccess then
-			warn("[CryptData]: No internet access - check your network connection")
+			log("[CryptData]: No internet access - check your network connection", warn)
 		end
 
 		local condition
 
 		if message then
-			condition = string.find(message, "403", 1, true) ~= nil -- Cannot write to DataStore from studio if API access is not enabled
-				or string.find(message, "must publish", 1, true) ~= nil -- Game must be published to access live keys
-				or noInternetAccess -- No internet access
+			condition = string.find(message, "403", 1, true) ~= nil
+				or string.find(message, "must publish", 1, true) ~= nil
+				or noInternetAccess
 		end
 
 		if not status and condition then
@@ -572,8 +589,8 @@ end
 task.spawn(function()
 	delayUntilLiveAccessCheck()
 	
-	if isStudio or not shouldNotSave then -- isStudio or
-		log("Will not run BindToClose")
+	if isStudio or not shouldNotSave then
+		--log("Will not run BindToClose")
 		
 		return
 	end
@@ -600,7 +617,7 @@ task.spawn(function()
 			end
 		end
 		
-		print("Successfully saved all active accounts.")
+		--log("Successfully saved all active accounts.")
 
 		while jobCount > 0 or activeLoadJobs > 0 or activeSaveJobs > 0 do
 			task.wait()
