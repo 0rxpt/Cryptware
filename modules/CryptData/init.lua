@@ -1,7 +1,39 @@
 local DataStoreService = game:GetService("DataStoreService")
 local RunService = game:GetService("RunService")
 
-export type _cryptStore = {
+local Serializers = {
+	Vector3 = function(vector3: Vector3)
+		return {
+			"Vector3",
+			
+			{
+				vector3.X,
+				vector3.Y,
+				vector3.Z
+			}
+		}
+	end,
+	
+	CFrame = function(cFrame: CFrame)
+		return {
+			"CFrame",
+			
+			{ cFrame:GetComponents() }
+		}
+	end,
+}
+
+local Deserializers = {
+	Vector3 = function(serialized)
+		return Vector3.new(table.unpack(serialized))
+	end,
+	
+	CFrame = function(serialized)
+		return CFrame.new(table.unpack(serialized))
+	end,
+}
+
+type _cryptStore = {
 	StoreKey: string,
 	DefaultData: {},
 	GlobalDataStore: any,
@@ -24,7 +56,13 @@ CryptStore.__index = CryptStore
 Account.__index = Account
 
 -- Private Variables
-local shouldLog = true
+local shouldNotSave = false
+
+local logLevel1 = false
+local logLevel2 = true
+local logLevel3 = true
+local logDebugging = false
+
 local session
 local placeId = game.PlaceId
 
@@ -51,20 +89,44 @@ local MetaTags = {
 	LastUpdate = true,
 }
 
+local allowedTypes = {
+	"number",
+	"string",
+	"boolean",
+	"table"
+}
+
+local allowedTypes2 = {
+	"number",
+	"string",
+	"boolean",
+	"table",
+	"nil"
+}
+
 -- Private Functions
 local function log(...)
 	local args = {...}
-	local callback = args[#args]
+	local config = args[#args]
 	
-	args[#args] = nil
+	local callback = config.Callback
+	local condition = config.Condition or logLevel1
 	
-	if shouldLog then
-		if type(callback) == "function" then
-			callback(table.unpack(args))
-		else
-			print(table.unpack(args))
-		end
+	if not condition then
+		return
 	end
+	
+	if type(config) == "table" then
+		args[#args] = nil
+	end
+	
+	if type(callback) == "function" then
+		callback(table.unpack(args))
+		
+		return
+	end
+	
+	print(table.unpack(args))
 end
 
 local function deepCopy(tbl)
@@ -170,13 +232,63 @@ local function isThisSession(activeSession)
 	return activeSession.JobId == session and activeSession.PlaceId == placeId
 end
 
+local function validateType(data)
+	if not table.find(allowedTypes, typeof(data)) then
+		return
+	end
+end
+
+local function validateString(str)
+	if str:byte() > 127 or #str > 65536 then
+		return false
+	end
+	
+	return true
+end
+
+local function registerInvalidation(data)
+	warn("[CryptData]: DETECTED UNSUPPORTED DATA!\n\tType:", typeof(data), "\n\tData:", data)
+end
+
+local function secureSavingTable(tbl)
+	for key, value in tbl do
+		local keyType = typeof(key)
+		local valueType = typeof(value)
+		
+		if not table.find(allowedTypes, keyType) then
+			tbl[key] = nil
+			registerInvalidation(key)
+		end
+		
+		if not table.find(allowedTypes2, valueType) then
+			if not Serializers[valueType] then
+				tbl[key] = nil
+				registerInvalidation(value)
+			else
+				log("Serializing:", valueType)
+				tbl[key] = Serializers[valueType](value)
+			end
+		end
+		
+		if keyType == "string" and not validateString(key) then
+			tbl[key] = nil
+			registerInvalidation(key)
+		elseif valueType == "string" and not validateString(value) then
+			tbl[key] = nil
+			registerInvalidation(value)
+		elseif valueType == "table" then
+			secureSavingTable(value)
+		end
+	end
+end
+
 local function saveAccount(account, freeFromSession, isOverwriting)
 	if account.AccountStore.UseMock then
 		if freeFromSession then
 			freeAccount(account)
 		end
 	else
-		print("Saving...")
+		log("Saving...")
 
 		if type(account.Data) ~= "table" then
 			error("[CryptData]: ACCOUNT DATA CORRUPTED DURING RUNTIME! Account: " .. account:Identify())
@@ -187,6 +299,11 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 		end
 
 		activeSaveJobs += 1
+		
+		log("Before secured:", account.Data, { Condition = logDebugging })
+		secureSavingTable(account.Data)
+		log("After secured:", account.Data, { Condition = logDebugging })
+		
 		--log("Attempting to save data:", account)
 
 		local loadedData
@@ -212,18 +329,18 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 					sessionOwnsAccount = true
 				end
 
-				log(sessionOwnsAccount and "Session owns account." or "Session does not own account.")
+				--log(sessionOwnsAccount and "Session owns account." or "Session does not own account.")
 
 				if sessionOwnsAccount then
 					latestData.Data = account.Data
 					latestData.Version += 1
 
-					log(isOverwriting and "Overwriting." or "Will not overwrite.")
+					--log(isOverwriting and "Overwriting." or "Will not overwrite.")
 
 					if not isOverwriting then
 						latestData.MetaData.LastUpdate = os.time()
 
-						log(freeFromSession and "Will free from session." or "Will not free from session.")
+						--log(freeFromSession and "Will free from session." or "Will not free from session.")
 
 						if freeFromSession then
 							latestData.MetaData.ActiveSession = nil
@@ -233,6 +350,10 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 						latestData.MetaData.ActiveSession = nil
 					end
 				end
+				
+				--log("Before secured:", latestData.Data)
+				--secureSavingTable(latestData.Data)
+				--log("After secured:", latestData.Data)
 
 				loadedData = latestData
 				latestData.AccountStore = nil
@@ -272,7 +393,8 @@ local function saveAccount(account, freeFromSession, isOverwriting)
 				freeAccount(account)
 			end
 		end
-
+		
+		log("Saved.")
 		activeSaveJobs -= 1
 	end
 end
@@ -301,11 +423,16 @@ function CryptData.GetStore(storeKey, defaultData): _cryptStore
 		task.spawn(function()
 			delayUntilLiveAccessCheck()
 			
-			self.GlobalDataStore = DataStoreService:GetDataStore(storeKey)
+			if not shouldNotSave then
+				self.GlobalDataStore = DataStoreService:GetDataStore(storeKey)
+			end
+			
 			self.Pending = false
 		end)
 	else
-		self.GlobalDataStore = DataStoreService:GetDataStore(storeKey)
+		if not shouldNotSave then
+			self.GlobalDataStore = DataStoreService:GetDataStore(storeKey)
+		end
 	end
 
 	activeCryptStores[storeKey] = self
@@ -464,6 +591,13 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 				AccountStore = self,
 			}
 			
+			for key, value in account.Data do
+				if value[1] and Deserializers[value[1]] then
+					log("Deserializing:", value[1])
+					account.Data[key] = Deserializers[value[1]](value[2])
+				end
+			end
+			
 			setmetatable(account, Account)
 			
 			if not doesNotSave then
@@ -563,7 +697,10 @@ if isStudio then
 		local noInternetAccess = not status and string.find(message, "ConnectFail", 1, true) ~= nil
 
 		if noInternetAccess then
-			log("[CryptData]: No internet access - check your network connection", warn)
+			log("[CryptData]: No internet access - check your network connection", {
+				Condition = logLevel3,
+				Callback = warn
+			})
 		end
 
 		local condition
@@ -577,9 +714,13 @@ if isStudio then
 		if not status and condition then
 			shouldNotSave = true
 
-			log("[CryptData]: Roblox API services unavailable - data will not be saved")
+			log("[CryptData]: Roblox API services unavailable - data will not be saved", {
+				Condition = logLevel3
+			})
 		else
-			log("[CryptData]: Roblox API services available - data will be saved")
+			log("[CryptData]: Roblox API services available - data will be saved", {
+				Condition = logLevel3
+			})
 		end
 
 		isLiveCheckActive = false
@@ -589,8 +730,8 @@ end
 task.spawn(function()
 	delayUntilLiveAccessCheck()
 	
-	if isStudio or not shouldNotSave then
-		--log("Will not run BindToClose")
+	if shouldNotSave then -- isStudio or 
+		log("Will not run BindToClose")
 		
 		return
 	end
