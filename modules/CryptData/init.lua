@@ -411,8 +411,6 @@ function CryptData.GetStore(storeKey, defaultData): _cryptStore
 	
 	self.Mock = {
 		LoadAccount = function(_, accountKey, loadMethod)
-			self.UseMock = true
-			
 			return self:LoadAccount(accountKey, loadMethod, true)
 		end,
 	}
@@ -461,7 +459,12 @@ function CryptStore:LoadAccount(accountKey, loadMethod, doesNotSave)
 		return
 	end
 	
+	doesNotSave = shouldNotSave or doesNotSave
 	delayUntilPendingAccountStoreCheck(self)
+	
+	if doesNotSave then
+		self.UseMock = true
+	end
 
 	for _, cryptStore: _cryptStore in activeCryptStores do
 		if cryptStore.StoreKey ~= self.StoreKey then
