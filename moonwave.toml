@@ -1,0 +1,17 @@
+title = "Cryptware"
+gitRepoUrl = "https://github.com/encrxpt3d/Cryptware"
+gitSourceBranch = "main"
+changelog = false
+
+[docusaurus]
+onBrokenLinks = "throw"
+onBrokenMarkdownLinks = "warn"
+organizationName = "encrxpt3d"
+projectName = "Cryptware"
+url = "https://encrxpt3d.github.io"
+baseUrl = "/Cryptware"
+tagline = "High-performance framework and utilities for Roblox"
+
+[home]
+enabled = true
+includeReadme = false
